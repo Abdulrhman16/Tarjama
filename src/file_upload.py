@@ -1,6 +1,7 @@
 # src/file_upload.py
 
 import os
+import pysrt
 from PyQt5.QtWidgets import QWidget, QVBoxLayout, QPushButton, QFileDialog, QLabel
 from translation import translate_text
 
@@ -33,12 +34,29 @@ class FileUpload(QWidget):
             
     def processFile(self, filePath):
         _, ext = os.path.splitext(filePath)
-        if ext in ['.srt', '.ass']:
-            print("Subtitle file selected:", filePath)
-            with open(filePath, 'r', encoding='utf-8') as file:
-                subtitle_text = file.read()
-            translated_text = translate_text(subtitle_text)
-            print("Translated Text:", translated_text)
+        if ext in ['.srt']:
+            self.processSRT(filePath)
+        elif ext in ['.ass']:
+            self.processASS(filePath)
         elif ext in ['.mp4', '.mkv']:
             print("Video file selected:", filePath)
             # Process video file (e.g., extract subtitles)
+
+    def processSRT(self, filePath):
+        print("Subtitle file selected:", filePath)
+        subs = pysrt.open(filePath)
+        translated_subs = []
+
+        for sub in subs:
+            translated_text = translate_text(sub.text)
+            translated_subs.append(translated_text)
+            sub.text = translated_text
+
+        # Save translated subtitles to a new file
+        translated_file_path = filePath.replace('.srt', '_translated.srt')
+        subs.save(translated_file_path, encoding='utf-8')
+        print(f"Translated subtitle file saved at: {translated_file_path}")
+
+    def processASS(self, filePath):
+        print("ASS subtitle processing is not yet implemented.")
+        # Implement similar to SRT processing
