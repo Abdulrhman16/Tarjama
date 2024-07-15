@@ -2,6 +2,7 @@
 
 import os
 from PyQt5.QtWidgets import QWidget, QVBoxLayout, QPushButton, QFileDialog, QLabel
+from translation import translate_text
 
 class FileUpload(QWidget):
     def __init__(self):
@@ -28,15 +29,16 @@ class FileUpload(QWidget):
                                                   options=options)
         if fileName:
             self.label.setText(f"Selected file: {fileName}")
-            # Process the file as needed
             self.processFile(fileName)
             
     def processFile(self, filePath):
-        # Determine if it's a subtitle or video file and handle accordingly
         _, ext = os.path.splitext(filePath)
         if ext in ['.srt', '.ass']:
             print("Subtitle file selected:", filePath)
-            # Process subtitle file
+            with open(filePath, 'r', encoding='utf-8') as file:
+                subtitle_text = file.read()
+            translated_text = translate_text(subtitle_text)
+            print("Translated Text:", translated_text)
         elif ext in ['.mp4', '.mkv']:
             print("Video file selected:", filePath)
             # Process video file (e.g., extract subtitles)
