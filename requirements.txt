@@ -3,12 +3,6 @@ certifi
 charset-normalizer
 ffmpeg-python
 future
-google-api-core
-google-auth
-google-cloud-core
-google-cloud-speech
-google-cloud-translate
-googleapis-common-protos
 grpcio
 grpcio-status
 idna
