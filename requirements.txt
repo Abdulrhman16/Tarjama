@@ -22,3 +22,7 @@ PyQt5_sip
 requests
 rsa
 urllib3
+transformers
+sentencepiece
+torch
+sacremoses

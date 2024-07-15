@@ -1,8 +1,12 @@
 # src/translation.py
 
-from google.cloud import translate_v2 as translate
+from transformers import MarianMTModel, MarianTokenizer
 
 def translate_text(text, target_language='ar'):
-    translate_client = translate.Client()
-    result = translate_client.translate(text, target_language=target_language)
-    return result['translatedText']
+    model_name = 'Helsinki-NLP/opus-mt-en-ar'
+    tokenizer = MarianTokenizer.from_pretrained(model_name)
+    model = MarianMTModel.from_pretrained(model_name)
+
+    translated = model.generate(**tokenizer(text, return_tensors="pt", padding=True))
+    translated_text = tokenizer.decode(translated[0], skip_special_tokens=True)
+    return translated_text
