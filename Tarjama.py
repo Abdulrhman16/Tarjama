@@ -1,4 +1,5 @@
 import sys
+import os
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QVBoxLayout, QHBoxLayout, QPushButton,
                              QFileDialog, QLabel, QTextEdit, QProgressBar, QInputDialog, QMessageBox, QWidget)
 from PyQt5.QtCore import Qt, QThread, pyqtSignal
@@ -43,7 +44,7 @@ class PlayerThread(QThread):
 
     def run(self):
         try:
-            subprocess.run(self.player_command)
+            subprocess.run(self.player_command, check=True)
         except FileNotFoundError:
             QMessageBox.warning(None, "Error", "Player is not installed or not found.")
         except Exception as e:
@@ -272,6 +273,8 @@ class TarjamaApp(QMainWindow):
         vlc_path = "vlc"
         if sys.platform.startswith('darwin'):  # macOS
             vlc_path = "/Applications/VLC.app/Contents/MacOS/VLC"
+        elif sys.platform.startswith('win'):  # Windows
+            vlc_path = "C:\\Program Files\\VideoLAN\\VLC\\vlc.exe"
         command = [vlc_path, "--sub-file=" + subtitle_file, self.video_file]
         self.player_thread = PlayerThread(command)
         self.player_thread.start()
