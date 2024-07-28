@@ -1,51 +1,53 @@
-# client.py
 import sys
-from PyQt5.QtWidgets import (
-    QApplication,
-    QMainWindow,
-    QVBoxLayout,
-    QHBoxLayout,
-    QPushButton,
-    QFileDialog,
-    QLabel,
-    QTextEdit,
-    QProgressBar,
-    QInputDialog,
-    QMessageBox,
-    QWidget,
-)
+from PyQt5.QtWidgets import (QApplication, QMainWindow, QVBoxLayout, QHBoxLayout, QPushButton,
+                             QFileDialog, QLabel, QTextEdit, QProgressBar, QInputDialog, QMessageBox, QWidget)
 from PyQt5.QtCore import Qt, QThread, pyqtSignal
 import subprocess
 import requests
 from deep_translator import GoogleTranslator
 from PyQt5.QtGui import QIcon
 
-
 class TranslatorThread(QThread):
     progress = pyqtSignal(int)
-    result = pyqtSignal(list)
+    result = pyqtSignal(str)
     error = pyqtSignal(str)
+    stopped = pyqtSignal()
 
-    def __init__(self, texts, parent=None):
+    def __init__(self, subtitle_file, parent=None):
         super(TranslatorThread, self).__init__(parent)
-        self.texts = texts
+        self.subtitle_file = subtitle_file
+        self._is_running = True
 
     def run(self):
-        translator = GoogleTranslator(source="en", target="ar")
-        translated_texts = []
         try:
-            for i, text in enumerate(self.texts):
-                translated_text = translator.translate(text)
-                translated_texts.append(translated_text)
-                self.progress.emit(i + 1)
-            self.result.emit(translated_texts)
+            with open(self.subtitle_file, 'rb') as f:
+                response = requests.post("http://CoopTeam.pythonanywhere.com/translate", files={'file': f})
+            if response.status_code == 200:
+                translated_content = response.json().get("translated_content", "")
+                self.result.emit(translated_content)
+            else:
+                self.error.emit(f"Translation failed: {response.json().get('error')}")
         except requests.ConnectionError:
-            self.error.emit(
-                "Network error: Failed to connect to the translation service."
-            )
+            self.error.emit("Network error: Failed to connect to the server.")
         except Exception as e:
-            self.error.emit("Translation failed. Please try again.")
+            self.error.emit(f"Translation failed. Please try again. {str(e)}")
 
+    def stop(self):
+        self._is_running = False
+        self.stopped.emit()
+
+class PlayerThread(QThread):
+    def __init__(self, player_command, parent=None):
+        super(PlayerThread, self).__init__(parent)
+        self.player_command = player_command
+
+    def run(self):
+        try:
+            subprocess.run(self.player_command)
+        except FileNotFoundError:
+            QMessageBox.warning(None, "Error", "Player is not installed or not found.")
+        except Exception as e:
+            QMessageBox.critical(None, "Error", f"Failed to play the video: {str(e)}")
 
 class TarjamaApp(QMainWindow):
     def __init__(self):
@@ -55,7 +57,7 @@ class TarjamaApp(QMainWindow):
     def initUI(self):
         self.setWindowTitle("Tarjama")
         self.setGeometry(100, 100, 800, 600)
-        self.setWindowIcon(QIcon("w.ico"))
+        self.setWindowIcon(QIcon('w.ico'))
 
         # Main layout
         self.centralWidget = QWidget()
@@ -75,6 +77,10 @@ class TarjamaApp(QMainWindow):
         self.translateButton = QPushButton("Translate File", self)
         self.translateButton.clicked.connect(self.translateFile)
         self.sidebar.addWidget(self.translateButton)
+
+        self.stopButton = QPushButton("Stop Translating", self)
+        self.stopButton.clicked.connect(self.stopTranslation)
+        self.sidebar.addWidget(self.stopButton)
 
         self.saveButton = QPushButton("Save File", self)
         self.saveButton.clicked.connect(self.saveFile)
@@ -119,6 +125,10 @@ class TarjamaApp(QMainWindow):
         self.playButton.clicked.connect(self.playVideo)
         self.footerLayout.addWidget(self.playButton)
 
+        self.customPlayerButton = QPushButton("Set Custom Player", self)
+        self.customPlayerButton.clicked.connect(self.setCustomPlayer)
+        self.footerLayout.addWidget(self.customPlayerButton)
+
         self.videoStatusLabel = QLabel("", self)
         self.footerLayout.addWidget(self.videoStatusLabel)
 
@@ -131,20 +141,19 @@ class TarjamaApp(QMainWindow):
         self.subtitle_file = None
         self.video_file = None
         self.translated_file = None
+        self.translation_thread = None
+        self.player_thread = None
+        self.custom_player_path = None
 
     def uploadFile(self):
         options = QFileDialog.Options()
         options |= QFileDialog.ReadOnly
-        fileName, _ = QFileDialog.getOpenFileName(
-            self,
-            "Open Subtitle File",
-            "",
-            "Subtitle Files (*.srt *.ass *.ssa);;All Files (*)",
-            options=options,
-        )
+        fileName, _ = QFileDialog.getOpenFileName(self, "Open Subtitle File", "",
+                                                  "Subtitle Files (*.srt *.ass *.ssa);;All Files (*)",
+                                                  options=options)
         if fileName:
             try:
-                with open(fileName, "r", encoding="utf-8") as file:
+                with open(fileName, 'r', encoding='utf-8') as file:
                     self.subtitleContent = file.read()
                 self.originalText.setPlainText(self.subtitleContent)
                 self.subtitle_file = fileName
@@ -155,88 +164,50 @@ class TarjamaApp(QMainWindow):
         if self.subtitle_file:
             self.statusLabel.setText("Status: In Progress...")
             self.progressBar.setValue(0)
-            try:
-                with open(self.subtitle_file, "rb") as f:
-                    response = requests.post(
-                        "http://CoopTeam.pythonanywhere.com/translate",
-                        files={"file": f},
-                    )
-                if response.status_code == 200:
-                    translated_content = response.json().get("translated_content", "")
-                    self.translatedText.setPlainText(translated_content)
-                    self.statusLabel.setText("Status: Done")
-                    QMessageBox.information(
-                        self, "Success", "Translation completed successfully."
-                    )
-                else:
-                    raise Exception(
-                        f"Translation failed: {response.json().get('error')}"
-                    )
-            except requests.ConnectionError:
-                QMessageBox.information(
-                    self, "Info", "Be patient, it will take longer this time, ."
-                )
-                self.translateWithGoogle()
-            except Exception as e:
-                QMessageBox.information(
-                    self, "Info", f"Be patient, it will take longer this time."
-                )
-                self.translateWithGoogle()
+            self.translation_thread = TranslatorThread(self.subtitle_file)
+            self.translation_thread.result.connect(self.displayTranslatedText)
+            self.translation_thread.error.connect(self.showTranslationError)
+            self.translation_thread.stopped.connect(self.translationStopped)
+            self.translation_thread.start()
         else:
             QMessageBox.warning(self, "Error", "Please upload a subtitle file first.")
 
-    def translateWithGoogle(self):
-        original_texts = self.subtitleContent.split("\n")
-        self.progressBar.setMaximum(len(original_texts))
-        self.translation_thread = TranslatorThread(original_texts)
-        self.translation_thread.progress.connect(self.updateProgressBar)
-        self.translation_thread.result.connect(self.displayTranslatedText)
-        self.translation_thread.error.connect(self.showTranslationError)
-        self.translation_thread.start()
+    def stopTranslation(self):
+        if self.translation_thread and self.translation_thread.isRunning():
+            self.translation_thread.stop()
+            self.statusLabel.setText("Status: Stopped")
 
-    def displayTranslatedText(self, translated_texts):
-        self.translatedContent = "\n".join(translated_texts)
+    def translationStopped(self):
+        self.statusLabel.setText("Status: Stopped")
+
+    def displayTranslatedText(self, translated_text):
+        self.translatedContent = translated_text
         self.translatedText.setPlainText(self.translatedContent)
+        self.statusLabel.setText("Status: Done")
 
     def saveFile(self):
         if self.subtitle_file:
             options = QFileDialog.Options()
-            fileName, _ = QFileDialog.getSaveFileName(
-                self,
-                "Save Translated File",
-                "",
-                "Subtitle Files (*.srt *.ass *.ssa);;All Files (*)",
-                options=options,
-            )
+            fileName, _ = QFileDialog.getSaveFileName(self, "Save Translated File", "",
+                                                      "Subtitle Files (*.srt *.ass *.ssa);;All Files (*)",
+                                                      options=options)
             if fileName:
                 try:
                     editedContent = self.translatedText.toPlainText()
-                    with open(fileName, "w", encoding="utf-8") as file:
+                    with open(fileName, 'w', encoding='utf-8') as file:
                         file.write(editedContent)
-                    QMessageBox.information(
-                        self,
-                        "Success",
-                        f"Translated subtitle file saved at: {fileName}",
-                    )
+                    QMessageBox.information(self, "Success", f"Translated subtitle file saved at: {fileName}")
                 except Exception:
-                    QMessageBox.critical(
-                        self, "Error", "Failed to save the translated subtitle file."
-                    )
+                    QMessageBox.critical(self, "Error", "Failed to save the translated subtitle file.")
         else:
-            QMessageBox.warning(
-                self, "Error", "Please upload and translate a subtitle file first."
-            )
+            QMessageBox.warning(self, "Error", "Please upload and translate a subtitle file first.")
 
     def chooseVideo(self):
         options = QFileDialog.Options()
         options |= QFileDialog.ReadOnly
-        fileName, _ = QFileDialog.getOpenFileName(
-            self,
-            "Choose Video File",
-            "",
-            "Video Files (*.mp4 *.mkv);;All Files (*)",
-            options=options,
-        )
+        fileName, _ = QFileDialog.getOpenFileName(self, "Choose Video File", "",
+                                                  "Video Files (*.mp4 *.mkv);;All Files (*)",
+                                                  options=options)
         if fileName:
             self.video_file = fileName
             self.videoStatusLabel.setText("Video uploaded successfully.")
@@ -244,72 +215,90 @@ class TarjamaApp(QMainWindow):
     def uploadTranslatedFile(self):
         options = QFileDialog.Options()
         options |= QFileDialog.ReadOnly
-        fileName, _ = QFileDialog.getOpenFileName(
-            self,
-            "Open Translated Subtitle File",
-            "",
-            "Subtitle Files (*.srt *.ass *.ssa);;All Files (*)",
-            options=options,
-        )
+        fileName, _ = QFileDialog.getOpenFileName(self, "Open Translated Subtitle File", "",
+                                                  "Subtitle Files (*.srt *.ass *.ssa);;All Files (*)",
+                                                  options=options)
         if fileName:
             try:
-                with open(fileName, "r", encoding="utf-8") as file:
+                with open(fileName, 'r', encoding='utf-8') as file:
                     self.translatedContent = file.read()
                 self.translatedText.setPlainText(self.translatedContent)
                 self.translated_file = fileName
             except Exception:
-                QMessageBox.critical(
-                    self, "Error", "Failed to read the translated subtitle file."
-                )
+                QMessageBox.critical(self, "Error", "Failed to read the translated subtitle file.")
 
     def playVideo(self):
         if not self.video_file or not (self.subtitle_file or self.translated_file):
-            QMessageBox.warning(
-                self, "Error", "Please upload a video and a subtitle file."
-            )
+            QMessageBox.warning(self, "Error", "Please upload a video and a subtitle file.")
             return
 
-        subtitle_file_to_use = (
-            self.translated_file if self.translated_file else self.subtitle_file
-        )
+        subtitle_options = []
+        if self.subtitle_file:
+            subtitle_options.append("Original Subtitle")
+        if self.translated_file:
+            subtitle_options.append("Translated Subtitle")
 
-        players = ["mpv", "vlc"]
-        player, ok = QInputDialog.getItem(
-            self, "Select Player", "Choose a video player:", players, 0, False
-        )
+        if not subtitle_options:
+            QMessageBox.warning(self, "Error", "No subtitles available to play with the video.")
+            return
 
-        if ok and player:
-            if player == "mpv":
-                self.playWithMPV(subtitle_file_to_use)
-            elif player == "vlc":
-                self.playWithVLC(subtitle_file_to_use)
+        subtitle_choice, ok = QInputDialog.getItem(self, "Select Subtitle", "Choose a subtitle file:", subtitle_options, 0, False)
+        if ok and subtitle_choice:
+            if subtitle_choice == "Original Subtitle":
+                subtitle_file_to_use = self.subtitle_file
+            elif subtitle_choice == "Translated Subtitle":
+                subtitle_file_to_use = self.translated_file
+
+            players = ["mpv", "vlc", "custom"]
+            player, ok = QInputDialog.getItem(self, "Select Player", "Choose a video player:", players, 0, False)
+
+            if ok and player:
+                if player == "mpv":
+                    self.playWithMPV(subtitle_file_to_use)
+                elif player == "vlc":
+                    self.playWithVLC(subtitle_file_to_use)
+                elif player == "custom":
+                    if self.custom_player_path:
+                        self.playWithCustomPlayer(subtitle_file_to_use)
+                    else:
+                        QMessageBox.warning(self, "Error", "No custom player path set.")
 
     def playWithMPV(self, subtitle_file):
         command = ["mpv", "--sub-file=" + subtitle_file, self.video_file]
-        try:
-            subprocess.run(command)
-        except FileNotFoundError:
-            QMessageBox.warning(self, "Error", "MPV is not installed or not found.")
-        except Exception:
-            QMessageBox.critical(self, "Error", "Failed to play the video with MPV.")
+        self.player_thread = PlayerThread(command)
+        self.player_thread.start()
 
     def playWithVLC(self, subtitle_file):
-        command = ["vlc", "--sub-file=" + subtitle_file, self.video_file]
-        try:
-            subprocess.run(command)
-        except FileNotFoundError:
-            QMessageBox.warning(self, "Error", "VLC is not installed or not found.")
-        except Exception:
-            QMessageBox.critical(self, "Error", "Failed to play the video with VLC.")
+        vlc_path = "vlc"
+        if sys.platform.startswith('darwin'):  # macOS
+            vlc_path = "/Applications/VLC.app/Contents/MacOS/VLC"
+        command = [vlc_path, "--sub-file=" + subtitle_file, self.video_file]
+        self.player_thread = PlayerThread(command)
+        self.player_thread.start()
+
+    def playWithCustomPlayer(self, subtitle_file):
+        command = [self.custom_player_path, subtitle_file, self.video_file]
+        self.player_thread = PlayerThread(command)
+        self.player_thread.start()
+
+    def setCustomPlayer(self):
+        options = QFileDialog.Options()
+        options |= QFileDialog.ReadOnly
+        fileName, _ = QFileDialog.getOpenFileName(self, "Select Custom Player Executable", "",
+                                                  "Executables (*.exe *.app *.sh);;All Files (*)",
+                                                  options=options)
+        if fileName:
+            self.custom_player_path = fileName
+            QMessageBox.information(self, "Success", f"Custom player set to: {fileName}")
 
     def updateProgressBar(self, value):
         self.progressBar.setValue(value)
 
     def showTranslationError(self, message):
+        self.statusLabel.setText("Status: Error")
         QMessageBox.critical(self, "Error", message)
 
-
-if __name__ == "__main__":
+if __name__ == '__main__':
     app = QApplication(sys.argv)
     translator_app = TarjamaApp()
     translator_app.show()
