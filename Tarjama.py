@@ -1,37 +1,68 @@
 import sys
-import os
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QVBoxLayout, QHBoxLayout, QPushButton,
-                             QFileDialog, QLabel, QTextEdit, QProgressBar, QInputDialog, QMessageBox, QWidget)
+                             QFileDialog, QLabel, QTableWidget, QTableWidgetItem, QProgressBar, QInputDialog, QMessageBox, QWidget, QComboBox, QHeaderView)
 from PyQt5.QtCore import Qt, QThread, pyqtSignal
 import subprocess
 import requests
 from deep_translator import GoogleTranslator
 from PyQt5.QtGui import QIcon
+import pysrt
+import ass
+import openai
+
+openai.api_key = 'sk-proj-pZzZVlZwF7qkz8Unl8qzT3BlbkFJvjfbifWKqj2y5zIg7sYF'  # Replace with your OpenAI API key
 
 class TranslatorThread(QThread):
     progress = pyqtSignal(int)
-    result = pyqtSignal(str)
+    result = pyqtSignal(list)
     error = pyqtSignal(str)
     stopped = pyqtSignal()
 
-    def __init__(self, subtitle_file, parent=None):
+    def __init__(self, subtitles, engine, parent=None):
         super(TranslatorThread, self).__init__(parent)
-        self.subtitle_file = subtitle_file
+        self.subtitles = subtitles
+        self.engine = engine
         self._is_running = True
 
     def run(self):
         try:
-            with open(self.subtitle_file, 'rb') as f:
-                response = requests.post("http://CoopTeam.pythonanywhere.com/translate", files={'file': f})
-            if response.status_code == 200:
-                translated_content = response.json().get("translated_content", "")
+            if self.engine == "Deep Translator":
+                translated_content = self.translate_with_deep_translator(self.subtitles)
                 self.result.emit(translated_content)
-            else:
-                self.error.emit(f"Translation failed: {response.json().get('error')}")
+            elif self.engine == "ChatGPT":
+                translated_content = self.translate_with_chatgpt(self.subtitles)
+                self.result.emit(translated_content)
         except requests.ConnectionError:
             self.error.emit("Network error: Failed to connect to the server.")
         except Exception as e:
             self.error.emit(f"Translation failed. Please try again. {str(e)}")
+
+    def translate_with_deep_translator(self, subtitles):
+        original_texts = [subtitle.text for subtitle in subtitles]
+        translator = GoogleTranslator(source='en', target='ar')
+        translated_texts = []
+        for text in original_texts:
+            translated_texts.append(translator.translate(text))
+        return translated_texts
+
+    def translate_with_chatgpt(self, subtitles):
+        original_texts = [subtitle.text for subtitle in subtitles]
+        batch_size = 20  # Adjust batch size here
+        translated_texts = []
+        for i in range(0, len(original_texts), batch_size):
+            batch = original_texts[i:i + batch_size]
+            response = openai.ChatCompletion.create(
+                model="gpt-3.5-turbo",
+                messages=[
+                    {"role": "system", "content": "Translate the following English subtitles to Arabic while maintaining the subtitle format."},
+                    {"role": "user", "content": "\n".join(batch)}
+                ],
+                max_tokens=1000,
+                temperature=0.5,
+            )
+            translated_batch = response['choices'][0]['message']['content'].split('\n')
+            translated_texts.extend(translated_batch)
+        return translated_texts
 
     def stop(self):
         self._is_running = False
@@ -57,7 +88,7 @@ class TarjamaApp(QMainWindow):
 
     def initUI(self):
         self.setWindowTitle("Tarjama")
-        self.setGeometry(100, 100, 800, 600)
+        self.setGeometry(100, 100, 1000, 600)
         self.setWindowIcon(QIcon('w.ico'))
 
         # Main layout
@@ -91,6 +122,10 @@ class TarjamaApp(QMainWindow):
         self.uploadTranslatedButton.clicked.connect(self.uploadTranslatedFile)
         self.sidebar.addWidget(self.uploadTranslatedButton)
 
+        self.engineSelector = QComboBox(self)
+        self.engineSelector.addItems(["Deep Translator", "ChatGPT"])
+        self.sidebar.addWidget(self.engineSelector)
+
         self.sidebar.addStretch()
 
         self.statusLabel = QLabel("Status: Idle", self)
@@ -105,14 +140,17 @@ class TarjamaApp(QMainWindow):
         # Main window for subtitles
         self.textEditLayout = QHBoxLayout()
 
-        self.originalText = QTextEdit(self)
-        self.originalText.setReadOnly(True)
-        self.originalText.setPlaceholderText("Original Subtitle")
-        self.textEditLayout.addWidget(self.originalText)
+        self.originalTable = QTableWidget(self)
+        self.originalTable.setColumnCount(2)
+        self.originalTable.setHorizontalHeaderLabels(["Start", "Original Subtitle"])
+        self.originalTable.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
+        self.textEditLayout.addWidget(self.originalTable)
 
-        self.translatedText = QTextEdit(self)
-        self.translatedText.setPlaceholderText("Translated Subtitle")
-        self.textEditLayout.addWidget(self.translatedText)
+        self.translatedTable = QTableWidget(self)
+        self.translatedTable.setColumnCount(2)
+        self.translatedTable.setHorizontalHeaderLabels(["Start", "Translated Subtitle"])
+        self.translatedTable.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
+        self.textEditLayout.addWidget(self.translatedTable)
 
         self.mainLayout.addLayout(self.textEditLayout, 3)
 
@@ -154,18 +192,54 @@ class TarjamaApp(QMainWindow):
                                                   options=options)
         if fileName:
             try:
-                with open(fileName, 'r', encoding='utf-8') as file:
-                    self.subtitleContent = file.read()
-                self.originalText.setPlainText(self.subtitleContent)
                 self.subtitle_file = fileName
+                if fileName.endswith('.srt'):
+                    self.subtitleContent = pysrt.open(fileName, encoding='utf-8')
+                elif fileName.endswith('.ass') or fileName.endswith('.ssa'):
+                    with open(fileName, 'r', encoding='utf-8') as f:
+                        self.subtitleContent = ass.parse(f)
+                self.loadSubtitles(self.originalTable, self.subtitleContent)
             except Exception:
                 QMessageBox.critical(self, "Error", "Failed to read the subtitle file.")
+
+    def loadSubtitles(self, table, subtitles):
+        if isinstance(subtitles, pysrt.SubRipFile):
+            table.setRowCount(len(subtitles))
+            for i, subtitle in enumerate(subtitles):
+                start_item = QTableWidgetItem(str(subtitle.start))
+                text_item = QTableWidgetItem(subtitle.text)
+                table.setItem(i, 0, start_item)
+                table.setItem(i, 1, text_item)
+        elif isinstance(subtitles, ass.document.Document):
+            events = [event for event in subtitles.events if event.type == 'Dialogue']
+            table.setRowCount(len(events))
+            for i, event in enumerate(events):
+                start_item = QTableWidgetItem(str(event.start))
+                text_item = QTableWidgetItem(event.text)
+                table.setItem(i, 0, start_item)
+                table.setItem(i, 1, text_item)
+
+    def getSubtitlesFromTable(self, table, original_subtitles):
+        if isinstance(original_subtitles, pysrt.SubRipFile):
+            for row in range(table.rowCount()):
+                text_item = table.item(row, 1)
+                if text_item:
+                    original_subtitles[row].text = text_item.text()
+            return original_subtitles
+        elif isinstance(original_subtitles, ass.document.Document):
+            events = [event for event in original_subtitles.events if event.type == 'Dialogue']
+            for row in range(table.rowCount()):
+                text_item = table.item(row, 1)
+                if text_item:
+                    events[row].text = text_item.text()
+            return original_subtitles
 
     def translateFile(self):
         if self.subtitle_file:
             self.statusLabel.setText("Status: In Progress...")
             self.progressBar.setValue(0)
-            self.translation_thread = TranslatorThread(self.subtitle_file)
+            selected_engine = self.engineSelector.currentText()
+            self.translation_thread = TranslatorThread(self.subtitleContent, selected_engine)
             self.translation_thread.result.connect(self.displayTranslatedText)
             self.translation_thread.error.connect(self.showTranslationError)
             self.translation_thread.stopped.connect(self.translationStopped)
@@ -181,9 +255,9 @@ class TarjamaApp(QMainWindow):
     def translationStopped(self):
         self.statusLabel.setText("Status: Stopped")
 
-    def displayTranslatedText(self, translated_text):
-        self.translatedContent = translated_text
-        self.translatedText.setPlainText(self.translatedContent)
+    def displayTranslatedText(self, translated_texts):
+        for i, translated_text in enumerate(translated_texts):
+            self.translatedTable.setItem(i, 1, QTableWidgetItem(translated_text))
         self.statusLabel.setText("Status: Done")
 
     def saveFile(self):
@@ -194,12 +268,15 @@ class TarjamaApp(QMainWindow):
                                                       options=options)
             if fileName:
                 try:
-                    editedContent = self.translatedText.toPlainText()
-                    with open(fileName, 'w', encoding='utf-8') as file:
-                        file.write(editedContent)
+                    edited_subtitles = self.getSubtitlesFromTable(self.translatedTable, self.subtitleContent)
+                    if fileName.endswith('.srt'):
+                        edited_subtitles.save(fileName, encoding='utf-8')
+                    elif fileName.endswith('.ass') or fileName.endswith('.ssa'):
+                        with open(fileName, 'w', encoding='utf-8') as f:
+                            f.write(edited_subtitles.to_string())
                     QMessageBox.information(self, "Success", f"Translated subtitle file saved at: {fileName}")
-                except Exception:
-                    QMessageBox.critical(self, "Error", "Failed to save the translated subtitle file.")
+                except Exception as e:
+                    QMessageBox.critical(self, "Error", f"Failed to save the translated subtitle file. {str(e)}")
         else:
             QMessageBox.warning(self, "Error", "Please upload and translate a subtitle file first.")
 
@@ -221,9 +298,12 @@ class TarjamaApp(QMainWindow):
                                                   options=options)
         if fileName:
             try:
-                with open(fileName, 'r', encoding='utf-8') as file:
-                    self.translatedContent = file.read()
-                self.translatedText.setPlainText(self.translatedContent)
+                if fileName.endswith('.srt'):
+                    self.translatedContent = pysrt.open(fileName, encoding='utf-8')
+                elif fileName.endswith('.ass') or fileName.endswith('.ssa'):
+                    with open(fileName, 'r', encoding='utf-8') as f:
+                        self.translatedContent = ass.parse(f)
+                self.loadSubtitles(self.translatedTable, self.translatedContent)
                 self.translated_file = fileName
             except Exception:
                 QMessageBox.critical(self, "Error", "Failed to read the translated subtitle file.")
