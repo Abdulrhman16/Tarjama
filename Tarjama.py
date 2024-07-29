@@ -54,7 +54,7 @@ class TranslatorThread(QThread):
         original_texts = [(i, subtitle.text) for i, subtitle in enumerate(subtitles)]
         translated_texts = []
         batch_size = 20  # Adjust batch size as needed
-        for i in range(0+1, len(original_texts), batch_size):
+        for i in range(0, len(original_texts), batch_size):
             batch = original_texts[i:i+batch_size]
             batch_text = "\n".join([f"{index}: {text}" for index, text in batch])
             try:
