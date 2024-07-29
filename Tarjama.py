@@ -9,12 +9,9 @@ from deep_translator import GoogleTranslator
 from PyQt5.QtGui import QIcon
 import pysrt
 import ass
-import openai
 
 # Configure logging
 logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
-
-openai.api_key = 'sk-proj-pZzZVlZwF7qkz8Unl8qzT3BlbkFJvjfbifWKqj2y5zIg7sYF'  # Replace with your OpenAI API key
 
 class TranslatorThread(QThread):
     progress = pyqtSignal(int)
@@ -33,8 +30,8 @@ class TranslatorThread(QThread):
             if self.engine == "Deep Translator":
                 translated_content = self.translate_with_deep_translator(self.subtitles)
                 self.result.emit(translated_content)
-            elif self.engine == "ChatGPT":
-                self.translate_with_chatgpt(self.subtitles)
+            elif self.engine == "Microsoft Translator":
+                self.translate_with_microsoft_translator(self.subtitles)
         except requests.ConnectionError:
             self.error.emit("Network error: Failed to connect to the server.")
         except Exception as e:
@@ -50,43 +47,36 @@ class TranslatorThread(QThread):
             translated_texts.append(translator.translate(text))
         return translated_texts
 
-    def translate_with_chatgpt(self, subtitles):
+    def translate_with_microsoft_translator(self, subtitles):
         original_texts = [(i, subtitle.text) for i, subtitle in enumerate(subtitles)]
         translated_texts = []
-        batch_size = 20  # Adjust batch size as needed
-        for i in range(0+1, len(original_texts), batch_size):
+        batch_size = 10  # Adjust batch size as needed
+        endpoint = "https://api.cognitive.microsofttranslator.com/translate?api-version=3.0"
+        subscription_key = "1b7a6f0532ae4e4e9cc8854f504566b3"
+        location = "qatarcentral"
+
+        for i in range(0, len(original_texts), batch_size):
             batch = original_texts[i:i+batch_size]
-            batch_text = "\n".join([f"{index}: {text}" for index, text in batch])
-            try:
-                response = openai.ChatCompletion.create(
-                    model="gpt-3.5-turbo",
-                    messages=[
-                        {"role": "system", "content": "Translate the following English subtitles to Arabic while maintaining the subtitle format , line numbers and text in same line number before translated. and translated the line literaly without take care on other context"},
-                        {"role": "user", "content": batch_text}
-                    ],
-                    temperature=0,
-                    top_p=0.0,
-                )
-                translated_batch = response['choices'][0]['message']['content']
-                translated_lines = self.parse_translated_batch(translated_batch)
-                translated_texts.extend(translated_lines)
+            batch_text = [{"Text": text} for index, text in batch]
+            headers = {
+                'Ocp-Apim-Subscription-Key': subscription_key,
+                'Ocp-Apim-Subscription-Region': location,
+                'Content-type': 'application/json'
+            }
+            params = {
+                'from': 'en',
+                'to': ['ar']
+            }
+            response = requests.post(endpoint, params=params, headers=headers, json=batch_text)
+            if response.status_code == 200:
+                translated_batch = response.json()
+                for j, translation in enumerate(translated_batch):
+                    translated_texts.append(translation['translations'][0]['text'])
                 self.progress.emit(len(translated_texts))
-            except Exception as e:
-                self.error.emit(f"Translation failed. {str(e)}")
+            else:
+                self.error.emit(f"Translation failed: {response.text}")
                 return
         self.result.emit(translated_texts)
-
-    def parse_translated_batch(self, translated_batch):
-        # Split the response by lines and parse the index and text
-        translated_lines = translated_batch.split('\n')
-        parsed_lines = []
-        for line in translated_lines:
-            if ':' in line:
-                index, text = line.split(':', 1)
-                parsed_lines.append((int(index.strip()), text.strip()))
-        # Sort by index to maintain the original order
-        parsed_lines.sort(key=lambda x: x[0]) #test 1
-        return [text for index, text in parsed_lines]
 
     def stop(self):
         self._is_running = False
@@ -147,7 +137,7 @@ class TarjamaApp(QMainWindow):
         self.sidebar.addWidget(self.uploadTranslatedButton)
 
         self.engineSelector = QComboBox(self)
-        self.engineSelector.addItems(["Deep Translator", "ChatGPT"])
+        self.engineSelector.addItems(["Deep Translator", "Microsoft Translator"])
         self.sidebar.addWidget(self.engineSelector)
 
         self.sidebar.addStretch()
@@ -430,3 +420,5 @@ if __name__ == '__main__':
     translator_app = TarjamaApp()
     translator_app.show()
     sys.exit(app.exec_())
+
+#This code uses the Microsoft Translator API for translations, ensuring you have more accurate translations and proper handling of subtitles. Make sure to replace `<your-translator-key>` and `<YOUR-RESOURCE-LOCATION>` with your actual Microsoft Translator API key and resource location.
