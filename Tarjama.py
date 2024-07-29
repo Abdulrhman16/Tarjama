@@ -51,11 +51,7 @@ class TranslatorThread(QThread):
         original_texts = [(i, subtitle.text) for i, subtitle in enumerate(subtitles)]
         translated_texts = []
         batch_size = 10  # Adjust batch size as needed
-        endpoint = "https://api.cognitive.microsofttranslator.com/translate?api-version=3.0"
-        subscription_key = "1b7a6f0532ae4e4e9cc8854f504566b3"
-        location = "qatarcentral"
-
-        for i in range(0, len(original_texts), batch_size):
+        for i in range(0+1, len(original_texts), batch_size):
             batch = original_texts[i:i+batch_size]
             batch_text = [{"Text": text} for index, text in batch]
             headers = {
