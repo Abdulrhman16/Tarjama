@@ -421,4 +421,4 @@ if __name__ == '__main__':
     translator_app.show()
     sys.exit(app.exec_())
 
-This code uses the Microsoft Translator API for translations, ensuring you have more accurate translations and proper handling of subtitles. Make sure to replace `<your-translator-key>` and `<YOUR-RESOURCE-LOCATION>` with your actual Microsoft Translator API key and resource location.
+#This code uses the Microsoft Translator API for translations, ensuring you have more accurate translations and proper handling of subtitles. Make sure to replace `<your-translator-key>` and `<YOUR-RESOURCE-LOCATION>` with your actual Microsoft Translator API key and resource location.
