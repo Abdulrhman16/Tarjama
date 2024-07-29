@@ -1,4 +1,5 @@
 import sys
+import logging
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QVBoxLayout, QHBoxLayout, QPushButton,
                              QFileDialog, QLabel, QTableWidget, QTableWidgetItem, QProgressBar, QInputDialog, QMessageBox, QWidget, QComboBox, QHeaderView)
 from PyQt5.QtCore import Qt, QThread, pyqtSignal
@@ -9,6 +10,9 @@ from PyQt5.QtGui import QIcon
 import pysrt
 import ass
 import openai
+
+# Configure logging
+logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
 
 openai.api_key = 'sk-proj-pZzZVlZwF7qkz8Unl8qzT3BlbkFJvjfbifWKqj2y5zIg7sYF'  # Replace with your OpenAI API key
 
@@ -30,8 +34,7 @@ class TranslatorThread(QThread):
                 translated_content = self.translate_with_deep_translator(self.subtitles)
                 self.result.emit(translated_content)
             elif self.engine == "ChatGPT":
-                translated_content = self.translate_with_chatgpt(self.subtitles)
-                self.result.emit(translated_content)
+                self.translate_with_chatgpt(self.subtitles)
         except requests.ConnectionError:
             self.error.emit("Network error: Failed to connect to the server.")
         except Exception as e:
@@ -42,27 +45,48 @@ class TranslatorThread(QThread):
         translator = GoogleTranslator(source='en', target='ar')
         translated_texts = []
         for text in original_texts:
+            if not self._is_running:
+                break
             translated_texts.append(translator.translate(text))
         return translated_texts
 
     def translate_with_chatgpt(self, subtitles):
-        original_texts = [subtitle.text for subtitle in subtitles]
-        batch_size = 20  # Adjust batch size here
+        original_texts = [(i, subtitle.text) for i, subtitle in enumerate(subtitles)]
         translated_texts = []
-        for i in range(0, len(original_texts), batch_size):
-            batch = original_texts[i:i + batch_size]
-            response = openai.ChatCompletion.create(
-                model="gpt-3.5-turbo",
-                messages=[
-                    {"role": "system", "content": "Translate the following English subtitles to Arabic while maintaining the subtitle format."},
-                    {"role": "user", "content": "\n".join(batch)}
-                ],
-                max_tokens=1000,
-                temperature=0.5,
-            )
-            translated_batch = response['choices'][0]['message']['content'].split('\n')
-            translated_texts.extend(translated_batch)
-        return translated_texts
+        batch_size = 20  # Adjust batch size as needed
+        for i in range(0+1, len(original_texts), batch_size):
+            batch = original_texts[i:i+batch_size]
+            batch_text = "\n".join([f"{index}: {text}" for index, text in batch])
+            try:
+                response = openai.ChatCompletion.create(
+                    model="gpt-3.5-turbo",
+                    messages=[
+                        {"role": "system", "content": "Translate the following English subtitles to Arabic while maintaining the subtitle format , line numbers and text in same line number before translated. and translated the line literaly without take care on other context"},
+                        {"role": "user", "content": batch_text}
+                    ],
+                    temperature=0,
+                    top_p=0.0,
+                )
+                translated_batch = response['choices'][0]['message']['content']
+                translated_lines = self.parse_translated_batch(translated_batch)
+                translated_texts.extend(translated_lines)
+                self.progress.emit(len(translated_texts))
+            except Exception as e:
+                self.error.emit(f"Translation failed. {str(e)}")
+                return
+        self.result.emit(translated_texts)
+
+    def parse_translated_batch(self, translated_batch):
+        # Split the response by lines and parse the index and text
+        translated_lines = translated_batch.split('\n')
+        parsed_lines = []
+        for line in translated_lines:
+            if ':' in line:
+                index, text = line.split(':', 1)
+                parsed_lines.append((int(index.strip()), text.strip()))
+        # Sort by index to maintain the original order
+        parsed_lines.sort(key=lambda x: x[0]) #test 1
+        return [text for index, text in parsed_lines]
 
     def stop(self):
         self._is_running = False
@@ -240,12 +264,31 @@ class TarjamaApp(QMainWindow):
             self.progressBar.setValue(0)
             selected_engine = self.engineSelector.currentText()
             self.translation_thread = TranslatorThread(self.subtitleContent, selected_engine)
-            self.translation_thread.result.connect(self.displayTranslatedText)
+            self.translation_thread.result.connect(self.updateTableWithTranslation)
             self.translation_thread.error.connect(self.showTranslationError)
             self.translation_thread.stopped.connect(self.translationStopped)
             self.translation_thread.start()
         else:
             QMessageBox.warning(self, "Error", "Please upload a subtitle file first.")
+
+    def updateTableWithTranslation(self, translated_texts):
+        logging.debug(f'Updating table with translated texts: {translated_texts}')
+        if isinstance(self.subtitleContent, pysrt.SubRipFile):
+            for i, subtitle in enumerate(self.subtitleContent):
+                if i < len(translated_texts):
+                    subtitle.text = translated_texts[i]
+                else:
+                    logging.error(f"Missing translation for subtitle {i}: {subtitle.text}")
+            self.loadSubtitles(self.translatedTable, self.subtitleContent)
+        elif isinstance(self.subtitleContent, ass.document.Document):
+            events = [event for event in self.subtitleContent.events if event.type == 'Dialogue']
+            for i, event in enumerate(events):
+                if i < len(translated_texts):
+                    event.text = translated_texts[i]
+                else:
+                    logging.error(f"Missing translation for event {i}: {event.text}")
+            self.loadSubtitles(self.translatedTable, self.subtitleContent)
+        self.statusLabel.setText("Status: Done")
 
     def stopTranslation(self):
         if self.translation_thread and self.translation_thread.isRunning():
@@ -256,6 +299,7 @@ class TarjamaApp(QMainWindow):
         self.statusLabel.setText("Status: Stopped")
 
     def displayTranslatedText(self, translated_texts):
+        logging.debug(f'Displaying translated texts: {translated_texts}')
         for i, translated_text in enumerate(translated_texts):
             self.translatedTable.setItem(i, 1, QTableWidgetItem(translated_text))
         self.statusLabel.setText("Status: Done")
