@@ -1,0 +1,13 @@
+PyQt5
+deep-translator
+requests
+pysrt 
+ass
+openai==0.28
+ffmpeg-python
+azure-cognitiveservices-speech
+webrtcvad
+google-cloud-speech
+pydub
+
+SpeechRecognition
