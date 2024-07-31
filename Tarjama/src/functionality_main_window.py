@@ -1,37 +1,29 @@
-import logging
 import os
-from PyQt5.QtWidgets import QFileDialog, QInputDialog, QMessageBox, QTableWidgetItem,QPushButton
+import logging
 import pysrt
-import ass
-
-import src.database as db
-from src.audio_processing import AudioProcessingThread
-from src.speech_recognition_thread import SpeechRecognitionThread
-from src.player_thread import PlayerThread
-from src.translation_thread import TranslatorThread
+from google.cloud import speech
+from PyQt5.QtCore import pyqtSignal
+from .database import fetch_all_videos, fetch_subtitles_for_video, delete_video, delete_subtitle, insert_subtitle
+from .audio_processing import AudioProcessingThread
+from .speech_recognition_thread import SpeechRecognitionThread
+from PyQt5.QtWidgets import QFileDialog, QTableWidgetItem, QMessageBox, QInputDialog
 import sys
+import ass
+from .translation_thread import TranslatorThread
+from .player_thread import PlayerThread
+
 def load_videos(self):
     self.videoList.clear()
-    videos = db.fetch_all_videos()
+    videos = fetch_all_videos()
     for video in videos:
         self.videoList.addItem(f"{video[0]}: {video[1]}")
-    load_subtitles(self)
-
-def load_subtitles(self):
-        subtitles = db.fetch_all_subtitles()
-        self.subtitlesList.clear()
-        for subtitle in subtitles:
-            self.subtitlesList.addItem(f"{subtitle[0]}: {subtitle[1]} ({subtitle[2]})")
 
 def load_subtitles_for_video(self, item):
     self.current_video_id = int(item.text().split(':')[0])
-    subtitles = db.fetch_subtitles_for_video(self.current_video_id)
+    subtitles = fetch_subtitles_for_video(self.current_video_id)
     self.subtitlesList.clear()
     for subtitle in subtitles:
         self.subtitlesList.addItem(f"{subtitle[0]}: {subtitle[1]}")
-    addSubtitleButton = QPushButton("Add Subtitle", self)
-    addSubtitleButton.clicked.connect(self.addSubtitle)
-    self.bottomLayout.addWidget(addSubtitleButton)
 
 def uploadFile(self):
     options = QFileDialog.Options()
@@ -48,7 +40,6 @@ def uploadFile(self):
                 with open(fileName, 'r', encoding='utf-8') as f:
                     self.subtitleContent = ass.parse(f)
             self.loadSubtitles(self.originalTable, self.subtitleContent)
-            db.insert_subtitle(self.current_video_id, self.subtitle_file, 'uploaded')
         except Exception:
             QMessageBox.critical(self, "Error", "Failed to read the subtitle file.")
 
@@ -120,9 +111,6 @@ def stopTranslation(self):
     if self.translation_thread and self.translation_thread.isRunning():
         self.translation_thread.stop()
         self.statusLabel.setText("Status: Stopped")
-    elif self.transcription_thread and self.transcription_thread.isRunning():
-        self.transcription_thread.stop()
-        self.statusLabel.setText("Status: Stopped")
 
 def translationStopped(self):
     self.statusLabel.setText("Status: Stopped")
@@ -152,6 +140,7 @@ def saveFile(self):
                 QMessageBox.critical(self, "Error", f"Failed to save the translated subtitle file. {str(e)}")
     else:
         QMessageBox.warning(self, "Error", "Please upload and translate a subtitle file first.")
+
 
 def saveOriginalFile(self):
     if self.subtitleContent:
@@ -197,7 +186,6 @@ def uploadTranslatedFile(self):
                     self.translatedContent = ass.parse(f)
             self.loadSubtitles(self.translatedTable, self.translatedContent)
             self.translated_file = fileName
-            db.insert_subtitle(self.current_video_id, self.translated_file, 'translated')
         except Exception:
             QMessageBox.critical(self, "Error", "Failed to read the translated subtitle file.")
 
@@ -205,14 +193,14 @@ def deleteVideo(self):
     current_item = self.videoList.currentItem()
     if current_item:
         video_id = int(current_item.text().split(':')[0])
-        db.delete_video(video_id)
+        delete_video(video_id)
         self.load_videos()
 
 def deleteSubtitle(self):
     current_item = self.subtitlesList.currentItem()
     if current_item:
         subtitle_id = int(current_item.text().split(':')[0])
-        db.delete_subtitle(subtitle_id)
+        delete_subtitle(subtitle_id)
         self.load_subtitles_for_video(self.videoList.currentItem())
 
 def playVideo(self):
@@ -250,6 +238,7 @@ def playVideo(self):
                     self.playWithCustomPlayer(subtitle_file_to_use)
                 else:
                     QMessageBox.warning(self, "Error", "No custom player path set.")
+
 
 def playWithMPV(self, subtitle_file):
     command = ["mpv", "--sub-file=" + subtitle_file, self.video_file]
@@ -301,14 +290,13 @@ def uploadVideo(self):
         self.audio_processing_thread.finished.connect(self.extract_and_translate_audio)
         self.audio_processing_thread.error.connect(self.showTranslationError)
         self.audio_processing_thread.start()
-        db.insert_video(fileName)
 
 def extract_and_translate_audio(self, audio_chunks_and_sample_rate):
-    audio_chunks, sample_rate = audio_chunks_and_sample_rate
+    audio_chunks, timestamps, sample_rate = audio_chunks_and_sample_rate
     self.statusLabel.setText("Status: Extracting and Transcribing Audio...")
     self.progressBar.setValue(0)
 
-    self.speech_thread = SpeechRecognitionThread(audio_chunks, sample_rate)
+    self.speech_thread = SpeechRecognitionThread(audio_chunks, timestamps, sample_rate)
     self.speech_thread.result.connect(self.on_audio_extracted)
     self.speech_thread.error.connect(self.showTranslationError)
     self.speech_thread.finished.connect(lambda: self.cleanup_audio_chunks(audio_chunks))
@@ -319,25 +307,36 @@ def on_audio_extracted(self, transcript_with_timestamps):
         QMessageBox.critical(self, "Error", "Speech recognition failed")
         return
 
-    # Debugging: Print the transcript_with_timestamps
-    print("Transcript with timestamps:", transcript_with_timestamps)
-
-    # Create subtitles from the transcriptions
+    # Combine words into subtitles
     subtitles = []
-    for i in range(len(transcript_with_timestamps)):
-        start_time, end_time, text = transcript_with_timestamps[i]
-        subtitle = pysrt.SubRipItem(
-            index=len(subtitles) + 1,
-            start=pysrt.SubRipTime(milliseconds=start_time),
-            end=pysrt.SubRipTime(milliseconds=end_time),
-            text=text
-        )
-        subtitles.append(subtitle)
-        # Align the end time with the next start time if there is an overlap
-        if i < len(transcript_with_timestamps) - 1:
-            next_start_time = transcript_with_timestamps[i + 1][0]
-            if next_start_time < end_time:
-                subtitle.end = pysrt.SubRipTime(milliseconds=next_start_time)
+    current_subtitle = []
+    max_words_per_subtitle = 6
+    min_words_per_subtitle = 3
+
+    for word_info in transcript_with_timestamps:
+        current_subtitle.append(word_info)
+
+        if len(current_subtitle) >= max_words_per_subtitle or \
+           (len(current_subtitle) >= min_words_per_subtitle and \
+            word_info['end_time'] - current_subtitle[0]['start_time'] > 2000):
+            start_time = current_subtitle[0]['start_time']
+            end_time = current_subtitle[-1]['end_time']
+            text = ' '.join([word['word'] for word in current_subtitle])
+            subtitles.append(pysrt.SubRipItem(index=len(subtitles) + 1,
+                                              start=pysrt.SubRipTime(milliseconds=start_time),
+                                              end=pysrt.SubRipTime(milliseconds=end_time),
+                                              text=text))
+            current_subtitle = []
+
+    # Handle remaining words
+    if current_subtitle:
+        start_time = current_subtitle[0]['start_time']
+        end_time = current_subtitle[-1]['end_time']
+        text = ' '.join([word['word'] for word in current_subtitle])
+        subtitles.append(pysrt.SubRipItem(index=len(subtitles) + 1,
+                                          start=pysrt.SubRipTime(milliseconds=start_time),
+                                          end=pysrt.SubRipTime(milliseconds=end_time),
+                                          text=text))
 
     # Save the extracted subtitles to an SRT file
     extracted_subtitles = pysrt.SubRipFile(items=subtitles)
@@ -347,7 +346,7 @@ def on_audio_extracted(self, transcript_with_timestamps):
 
     # Insert extracted subtitles into the database
     if self.current_video_id:
-        db.insert_subtitle(self.current_video_id, self.subtitle_file, 'original')
+        insert_subtitle(self.current_video_id, self.subtitle_file, 'original')
 
     self.loadSubtitles(self.originalTable, self.subtitleContent)
     current_item = self.videoList.currentItem()
@@ -358,31 +357,18 @@ def on_audio_extracted(self, transcript_with_timestamps):
 
 def cleanup_audio_chunks(self, audio_chunks):
     for chunk in audio_chunks:
-        try:
+        if os.path.exists(chunk):
             os.remove(chunk)
-            logging.debug(f"Deleted temporary audio file: {chunk}")
-        except Exception as e:
-            logging.error(f"Failed to delete temporary audio file {chunk}: {e}")
+            logging.debug('Deleted chunk file: %s', chunk)
 
-def addVideo(self):
+
+def chooseVideo(self):
     options = QFileDialog.Options()
     options |= QFileDialog.ReadOnly
-    fileName, _ = QFileDialog.getOpenFileName(self, "Add Video File", "",
+    fileName, _ = QFileDialog.getOpenFileName(self, "Choose Video File", "",
                                               "Video Files (*.mp4 *.mkv);;All Files (*)",
                                               options=options)
     if fileName:
-        db.insert_video(fileName)
-        self.load_videos()
+        self.video_file = fileName
+        self.videoStatusLabel.setText("Video uploaded successfully.")
 
-def addSubtitle(self):
-    current_item = self.videoList.currentItem()
-    if current_item:
-        video_id = int(current_item.text().split(':')[0])
-        options = QFileDialog.Options()
-        options |= QFileDialog.ReadOnly
-        fileName, _ = QFileDialog.getOpenFileName(self, "Add Subtitle File", "",
-                                                  "Subtitle Files (*.srt *.ass *.ssa);;All Files (*)",
-                                                  options=options)
-        if fileName:
-            db.insert_subtitle(video_id, fileName, 'uploaded')
-            self.load_subtitles_for_video(current_item)
