@@ -1,6 +1,0 @@
-PyQt5
-deep-translator
-requests
-pysrt 
-ass
-openai==0.28
