@@ -11,3 +11,4 @@ google-cloud-speech
 pydub
 
 SpeechRecognition
+pyqt

@@ -1,14 +1,11 @@
 import logging
-from PyQt5.QtWidgets import (
-    QMainWindow, QVBoxLayout, QHBoxLayout, QPushButton, QFileDialog, QLabel, 
-    QTableWidget, QTableWidgetItem, QProgressBar, QInputDialog, QMessageBox, 
-    QWidget, QComboBox, QHeaderView, QListWidget
-)
+from PyQt5.QtWidgets import QMainWindow, QVBoxLayout, QHBoxLayout, QPushButton, QFileDialog, QLabel, QTableWidget, QTableWidgetItem, QProgressBar, QInputDialog, QMessageBox, QWidget, QComboBox, QHeaderView, QListWidget
 from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QIcon
 import pysrt
 import ass
 import src.functionality_main_window as func
+import src.database as db
 
 # Configure logging
 logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -48,10 +45,6 @@ class MainWindow(QMainWindow):
         self.uploadVideoButton.clicked.connect(self.uploadVideo)
         self.sidebar.addWidget(self.uploadVideoButton)
 
-        self.uploadTestVideoButton = QPushButton("Upload Test Video", self)
-        self.uploadTestVideoButton.clicked.connect(self.chooseVideo)
-        self.sidebar.addWidget(self.uploadTestVideoButton)
-
         self.translateButton = QPushButton("Translate File", self)
         self.translateButton.clicked.connect(self.translateFile)
         self.sidebar.addWidget(self.translateButton)
@@ -75,6 +68,10 @@ class MainWindow(QMainWindow):
         self.uploadTranslatedButton = QPushButton("Upload Translated File", self)
         self.uploadTranslatedButton.clicked.connect(self.uploadTranslatedFile)
         self.sidebar.addWidget(self.uploadTranslatedButton)
+
+        self.addVideoButton = QPushButton("Add Video", self)
+        self.addVideoButton.clicked.connect(self.addVideo)
+        self.sidebar.addWidget(self.addVideoButton)
 
         self.engineSelector = QComboBox(self)
         self.engineSelector.addItems(["Deep Translator", "Microsoft Translator"])
@@ -134,6 +131,10 @@ class MainWindow(QMainWindow):
         self.customPlayerButton.clicked.connect(self.setCustomPlayer)
         self.bottomLayout.addWidget(self.customPlayerButton)
 
+        self.addSubtitleButton = QPushButton("Add Subtitle", self)
+        self.addSubtitleButton.clicked.connect(self.addSubtitle)
+        self.bottomLayout.addWidget(self.addSubtitleButton)
+
         self.videoStatusLabel = QLabel("", self)
         self.bottomLayout.addWidget(self.videoStatusLabel)
 
@@ -151,10 +152,8 @@ class MainWindow(QMainWindow):
         self.custom_player_path = None
         self.current_video_id = None
 
-<<<<<<< HEAD
+        self.load_videos()
 
-=======
->>>>>>> parent of 3a8aca8 (version 2.2)
     def load_videos(self):
         func.load_videos(self)
 
@@ -235,10 +234,10 @@ class MainWindow(QMainWindow):
 
     def cleanup_audio_chunks(self, audio_chunks):
         func.cleanup_audio_chunks(self, audio_chunks)
-<<<<<<< HEAD
-=======
 
->>>>>>> parent of 3a8aca8 (version 2.2)
+    def load_subtitles(self):
+        func.load_subtitles(self)
+    
     def apply_dark_theme(self):
         dark_stylesheet = """
         QWidget {
@@ -263,10 +262,18 @@ class MainWindow(QMainWindow):
         }
         """
         self.setStyleSheet(dark_stylesheet)
-
+        
     def playTranslatedVideo(self):
         if not self.video_file or not self.translated_file:
             QMessageBox.warning(self, "Error", "Please upload a video and translate a subtitle file.")
             return
 
         self.playVideo()
+
+    def addVideo(self):
+        func.addVideo(self)
+
+    def addSubtitle(self):
+        func.addSubtitle(self)
+
+    
