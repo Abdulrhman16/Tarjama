@@ -48,6 +48,10 @@ class MainWindow(QMainWindow):
         self.uploadVideoButton.clicked.connect(self.uploadVideo)
         self.sidebar.addWidget(self.uploadVideoButton)
 
+        self.uploadTestVideoButton = QPushButton("Upload Test Video", self)
+        self.uploadTestVideoButton.clicked.connect(self.chooseVideo)
+        self.sidebar.addWidget(self.uploadTestVideoButton)
+
         self.translateButton = QPushButton("Translate File", self)
         self.translateButton.clicked.connect(self.translateFile)
         self.sidebar.addWidget(self.translateButton)
@@ -147,7 +151,10 @@ class MainWindow(QMainWindow):
         self.custom_player_path = None
         self.current_video_id = None
 
+<<<<<<< HEAD
 
+=======
+>>>>>>> parent of 3a8aca8 (version 2.2)
     def load_videos(self):
         func.load_videos(self)
 
@@ -228,6 +235,10 @@ class MainWindow(QMainWindow):
 
     def cleanup_audio_chunks(self, audio_chunks):
         func.cleanup_audio_chunks(self, audio_chunks)
+<<<<<<< HEAD
+=======
+
+>>>>>>> parent of 3a8aca8 (version 2.2)
     def apply_dark_theme(self):
         dark_stylesheet = """
         QWidget {
@@ -252,7 +263,7 @@ class MainWindow(QMainWindow):
         }
         """
         self.setStyleSheet(dark_stylesheet)
-        
+
     def playTranslatedVideo(self):
         if not self.video_file or not self.translated_file:
             QMessageBox.warning(self, "Error", "Please upload a video and translate a subtitle file.")
