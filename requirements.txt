@@ -9,6 +9,5 @@ azure-cognitiveservices-speech
 webrtcvad
 google-cloud-speech
 pydub
-
 SpeechRecognition
 pyqt
