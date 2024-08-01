@@ -10,4 +10,5 @@ webrtcvad
 google-cloud-speech
 pydub
 SpeechRecognition
-pyqt
+PyQt5-Qt5
+PyQt5-sip

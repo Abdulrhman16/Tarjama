@@ -3,24 +3,25 @@ import logging
 import pysrt
 from google.cloud import speech
 from PyQt5.QtCore import pyqtSignal
-from .database import fetch_all_videos, fetch_subtitles_for_video, delete_video, delete_subtitle, insert_subtitle
-from .audio_processing import AudioProcessingThread
-from .speech_recognition_thread import SpeechRecognitionThread
 from PyQt5.QtWidgets import QFileDialog, QTableWidgetItem, QMessageBox, QInputDialog
 import sys
 import ass
+from .audio_processing import AudioProcessingThread
+from .speech_recognition_thread import SpeechRecognitionThread
 from .translation_thread import TranslatorThread
 from .player_thread import PlayerThread
 
 def load_videos(self):
     self.videoList.clear()
-    videos = fetch_all_videos()
+    # Load videos from a predefined list or any other source instead of the database
+    videos = [('1', 'Sample Video 1'), ('2', 'Sample Video 2')]
     for video in videos:
         self.videoList.addItem(f"{video[0]}: {video[1]}")
 
 def load_subtitles_for_video(self, item):
     self.current_video_id = int(item.text().split(':')[0])
-    subtitles = fetch_subtitles_for_video(self.current_video_id)
+    # Load subtitles from a predefined list or any other source instead of the database
+    subtitles = [('1', 'Sample Subtitle 1'), ('2', 'Sample Subtitle 2')]
     self.subtitlesList.clear()
     for subtitle in subtitles:
         self.subtitlesList.addItem(f"{subtitle[0]}: {subtitle[1]}")
@@ -141,7 +142,6 @@ def saveFile(self):
     else:
         QMessageBox.warning(self, "Error", "Please upload and translate a subtitle file first.")
 
-
 def saveOriginalFile(self):
     if self.subtitleContent:
         options = QFileDialog.Options()
@@ -192,15 +192,15 @@ def uploadTranslatedFile(self):
 def deleteVideo(self):
     current_item = self.videoList.currentItem()
     if current_item:
+        # Remove the video from a predefined list or any other source instead of the database
         video_id = int(current_item.text().split(':')[0])
-        delete_video(video_id)
         self.load_videos()
 
 def deleteSubtitle(self):
     current_item = self.subtitlesList.currentItem()
     if current_item:
+        # Remove the subtitle from a predefined list or any other source instead of the database
         subtitle_id = int(current_item.text().split(':')[0])
-        delete_subtitle(subtitle_id)
         self.load_subtitles_for_video(self.videoList.currentItem())
 
 def playVideo(self):
@@ -238,7 +238,6 @@ def playVideo(self):
                     self.playWithCustomPlayer(subtitle_file_to_use)
                 else:
                     QMessageBox.warning(self, "Error", "No custom player path set.")
-
 
 def playWithMPV(self, subtitle_file):
     command = ["mpv", "--sub-file=" + subtitle_file, self.video_file]
@@ -344,14 +343,7 @@ def on_audio_extracted(self, transcript_with_timestamps):
     extracted_subtitles.save(self.subtitle_file, encoding='utf-8')
     self.subtitleContent = extracted_subtitles
 
-    # Insert extracted subtitles into the database
-    if self.current_video_id:
-        insert_subtitle(self.current_video_id, self.subtitle_file, 'original')
-
     self.loadSubtitles(self.originalTable, self.subtitleContent)
-    current_item = self.videoList.currentItem()
-    if current_item:
-        self.load_subtitles_for_video(current_item)
     self.statusLabel.setText("Status: Done")
     QMessageBox.information(self, "Success", "Audio extracted and transcribed successfully")
 
@@ -360,15 +352,3 @@ def cleanup_audio_chunks(self, audio_chunks):
         if os.path.exists(chunk):
             os.remove(chunk)
             logging.debug('Deleted chunk file: %s', chunk)
-
-
-def chooseVideo(self):
-    options = QFileDialog.Options()
-    options |= QFileDialog.ReadOnly
-    fileName, _ = QFileDialog.getOpenFileName(self, "Choose Video File", "",
-                                              "Video Files (*.mp4 *.mkv);;All Files (*)",
-                                              options=options)
-    if fileName:
-        self.video_file = fileName
-        self.videoStatusLabel.setText("Video uploaded successfully.")
-
