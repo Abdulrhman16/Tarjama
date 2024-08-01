@@ -1,5 +1,9 @@
 import logging
-from PyQt5.QtWidgets import QMainWindow, QVBoxLayout, QHBoxLayout, QPushButton, QFileDialog, QLabel, QTableWidget, QTableWidgetItem, QProgressBar, QInputDialog, QMessageBox, QWidget, QComboBox, QHeaderView, QListWidget
+from PyQt5.QtWidgets import (
+    QMainWindow, QVBoxLayout, QHBoxLayout, QPushButton, QFileDialog, QLabel, 
+    QTableWidget, QTableWidgetItem, QProgressBar, QInputDialog, QMessageBox, 
+    QWidget, QComboBox, QHeaderView, QListWidget
+)
 from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QIcon
 import pysrt
@@ -7,7 +11,7 @@ import ass
 import src.functionality_main_window as func
 
 # Configure logging
-logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - % (levelname)s - % (message)s')
+logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
 
 class MainWindow(QMainWindow):
     def __init__(self):
@@ -18,6 +22,9 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("Tarjama")
         self.setGeometry(100, 100, 1200, 800)
         self.setWindowIcon(QIcon('w.ico'))
+
+        # Apply dark theme
+        self.apply_dark_theme()
 
         # Main layout
         self.centralWidget = QWidget()
@@ -44,6 +51,10 @@ class MainWindow(QMainWindow):
         self.translateButton = QPushButton("Translate File", self)
         self.translateButton.clicked.connect(self.translateFile)
         self.sidebar.addWidget(self.translateButton)
+
+        self.playTranslatedButton = QPushButton("Play Translated Video", self)
+        self.playTranslatedButton.clicked.connect(self.playTranslatedVideo)
+        self.sidebar.addWidget(self.playTranslatedButton)
 
         self.stopButton = QPushButton("Stop Translating", self)
         self.stopButton.clicked.connect(self.stopTranslation)
@@ -136,6 +147,7 @@ class MainWindow(QMainWindow):
         self.custom_player_path = None
         self.current_video_id = None
 
+
     def load_videos(self):
         func.load_videos(self)
 
@@ -216,3 +228,34 @@ class MainWindow(QMainWindow):
 
     def cleanup_audio_chunks(self, audio_chunks):
         func.cleanup_audio_chunks(self, audio_chunks)
+    def apply_dark_theme(self):
+        dark_stylesheet = """
+        QWidget {
+            background-color: #2E2E2E;
+            color: #FFFFFF;
+        }
+        QPushButton {
+            background-color: #4E4E4E;
+            color: #FFFFFF;
+        }
+        QTableWidget {
+            background-color: #2E2E2E;
+            color: #FFFFFF;
+        }
+        QHeaderView::section {
+            background-color: #4E4E4E;
+            color: #FFFFFF;
+        }
+        QListWidget {
+            background-color: #2E2E2E;
+            color: #FFFFFF;
+        }
+        """
+        self.setStyleSheet(dark_stylesheet)
+        
+    def playTranslatedVideo(self):
+        if not self.video_file or not self.translated_file:
+            QMessageBox.warning(self, "Error", "Please upload a video and translate a subtitle file.")
+            return
+
+        self.playVideo()

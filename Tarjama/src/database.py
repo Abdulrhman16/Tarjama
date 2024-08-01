@@ -1,67 +1,99 @@
 import sqlite3
 
-def initialize_db():
-    conn = sqlite3.connect('tarjama.db')
-    cursor = conn.cursor()
+DB_PATH = 'subtitles.db'
 
-    # Create videos table
-    cursor.execute('''
+def init_db():
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute('''
         CREATE TABLE IF NOT EXISTS videos (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            file_path TEXT NOT NULL,
-            description TEXT
+            path TEXT NOT NULL
         )
     ''')
-
-    # Create subtitles table
-    cursor.execute('''
+    c.execute('''
         CREATE TABLE IF NOT EXISTS subtitles (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             video_id INTEGER,
-            file_path TEXT NOT NULL,
-            type TEXT,
-            FOREIGN KEY(video_id) REFERENCES videos(id)
+            path TEXT NOT NULL,
+            type TEXT NOT NULL,
+            FOREIGN KEY (video_id) REFERENCES videos(id)
         )
     ''')
+    conn.commit()
+    conn.close()
 
+def insert_video(path):
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute('INSERT INTO videos (path) VALUES (?)', (path,))
+    conn.commit()
+    conn.close()
+
+def insert_subtitle(video_id, path, type):
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute('INSERT INTO subtitles (video_id, path, type) VALUES (?, ?, ?)', (video_id, path, type))
     conn.commit()
     conn.close()
 
 def fetch_all_videos():
-    conn = sqlite3.connect('tarjama.db')
-    cursor = conn.cursor()
-    cursor.execute("SELECT id, name FROM videos")
-    videos = cursor.fetchall()
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute('SELECT id, path FROM videos')
+    videos = c.fetchall()
     conn.close()
     return videos
 
 def fetch_subtitles_for_video(video_id):
-    conn = sqlite3.connect('tarjama.db')
-    cursor = conn.cursor()
-    cursor.execute("SELECT id, file_path FROM subtitles WHERE video_id=?", (video_id,))
-    subtitles = cursor.fetchall()
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute('SELECT id, path FROM subtitles WHERE video_id = ?', (video_id,))
+    subtitles = c.fetchall()
+    conn.close()
+    return subtitles
+
+def fetch_all_subtitles():
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute('SELECT id, path, type FROM subtitles')
+    subtitles = c.fetchall()
     conn.close()
     return subtitles
 
 def delete_video(video_id):
-    conn = sqlite3.connect('tarjama.db')
-    cursor = conn.cursor()
-    cursor.execute("DELETE FROM videos WHERE id=?", (video_id,))
-    cursor.execute("DELETE FROM subtitles WHERE video_id=?", (video_id,))
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute('DELETE FROM videos WHERE id = ?', (video_id,))
+    c.execute('DELETE FROM subtitles WHERE video_id = ?', (video_id,))
     conn.commit()
     conn.close()
 
 def delete_subtitle(subtitle_id):
-    conn = sqlite3.connect('tarjama.db')
-    cursor = conn.cursor()
-    cursor.execute("DELETE FROM subtitles WHERE id=?", (subtitle_id,))
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute('DELETE FROM subtitles WHERE id = ?', (subtitle_id,))
     conn.commit()
     conn.close()
 
-def insert_subtitle(video_id, file_path, subtitle_type):
-    conn = sqlite3.connect('tarjama.db')
-    cursor = conn.cursor()
-    cursor.execute("INSERT INTO subtitles (video_id, file_path, type) VALUES (?, ?, ?)",
-                   (video_id, file_path, subtitle_type))
-    conn.commit()
+def fetch_video_path(video_id):
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute('SELECT path FROM videos WHERE id = ?', (video_id,))
+    result = c.fetchone()
     conn.close()
+    if result:
+        return result[0]
+    return None
+
+def fetch_subtitle_path(subtitle_id):
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute('SELECT path FROM subtitles WHERE id = ?', (subtitle_id,))
+    result = c.fetchone()
+    conn.close()
+    if result:
+        return result[0]
+    return None
+
+init_db()
