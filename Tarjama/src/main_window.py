@@ -1,5 +1,6 @@
 import logging
 import os
+import shutil
 import json
 from PyQt5.QtWidgets import QMainWindow, QVBoxLayout, QHBoxLayout, QPushButton, QFileDialog, QLabel, QTableWidget, QTableWidgetItem, QProgressBar, QInputDialog, QMessageBox, QWidget, QComboBox, QHeaderView, QListWidget
 from PyQt5.QtCore import Qt
@@ -16,6 +17,7 @@ logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %
 
 class MainWindow(QMainWindow):
     DATA_FILE = 'data.json'
+    DATA_DIR = 'data'
 
     def __init__(self):
         super().__init__()
@@ -79,6 +81,10 @@ class MainWindow(QMainWindow):
         self.uploadTranslatedButton = QPushButton("Upload Translated File", self)
         self.uploadTranslatedButton.clicked.connect(self.uploadTranslatedFile)
         self.sidebar.addWidget(self.uploadTranslatedButton)
+
+        self.addExternalSubtitleButton = QPushButton("Add External Subtitle", self)
+        self.addExternalSubtitleButton.clicked.connect(self.addExternalSubtitle)
+        self.sidebar.addWidget(self.addExternalSubtitleButton)
 
         self.engineSelector = QComboBox(self)
         self.engineSelector.addItems(["Deep Translator", "Microsoft Translator"])
@@ -155,6 +161,10 @@ class MainWindow(QMainWindow):
         self.custom_player_path = None
         self.current_video_id = None
 
+        # Create data directory if it doesn't exist
+        if not os.path.exists(self.DATA_DIR):
+            os.makedirs(self.DATA_DIR)
+
     def save_data(self):
         data = {
             "videos": [self.videoList.item(i).text() for i in range(self.videoList.count())],
@@ -172,18 +182,18 @@ class MainWindow(QMainWindow):
 
     def load_videos(self):
         self.videoList.clear()
-        videos = [('1', 'Sample Video 1'), ('2', 'Sample Video 2')]
+        videos = [f for f in os.listdir(self.DATA_DIR) if f.endswith(('.mp4', '.mkv'))]
         for video in videos:
-            self.videoList.addItem(f"{video[0]}: {video[1]}")
+            self.videoList.addItem(video)
 
     def load_subtitles_for_video(self, item):
-        video_path = item.text()
+        video_path = os.path.join(self.DATA_DIR, item.text())
         self.current_video_id = video_path
-        # Load subtitles from a predefined list or any other source instead of the database
-        subtitles = [('1', 'Sample Subtitle 1'), ('2', 'Sample Subtitle 2')]
+        # Load associated subtitles
+        subtitle_files = [f for f in os.listdir(self.DATA_DIR) if f.startswith(os.path.splitext(item.text())[0])]
         self.subtitlesList.clear()
-        for subtitle in subtitles:
-            self.subtitlesList.addItem(f"{subtitle[0]}: {subtitle[1]}")
+        for subtitle in subtitle_files:
+            self.subtitlesList.addItem(subtitle)
 
     def uploadFile(self):
         options = QFileDialog.Options()
@@ -193,17 +203,19 @@ class MainWindow(QMainWindow):
                                                   options=options)
         if fileName:
             try:
-                self.subtitle_file = fileName
+                dest_path = os.path.join(self.DATA_DIR, os.path.basename(fileName))
+                shutil.copy(fileName, dest_path)
+                self.subtitle_file = dest_path
                 if fileName.endswith('.srt'):
-                    self.subtitleContent = pysrt.open(fileName, encoding='utf-8')
+                    self.subtitleContent = pysrt.open(dest_path, encoding='utf-8')
                 elif fileName.endswith('.ass') or fileName.endswith('.ssa'):
-                    with open(fileName, 'r', encoding='utf-8') as f:
+                    with open(dest_path, 'r', encoding='utf-8') as f:
                         self.subtitleContent = ass.parse(f)
                 self.loadSubtitles(self.originalTable, self.subtitleContent)
-                self.subtitlesList.addItem(fileName)
+                self.subtitlesList.addItem(os.path.basename(dest_path))
                 self.save_data()
-            except Exception:
-                QMessageBox.critical(self, "Error", "Failed to read the subtitle file.")
+            except Exception as e:
+                QMessageBox.critical(self, "Error", f"Failed to read the subtitle file: {str(e)}")
 
     def loadSubtitles(self, table, subtitles):
         if isinstance(subtitles, pysrt.SubRipFile):
@@ -271,14 +283,17 @@ class MainWindow(QMainWindow):
             if fileName:
                 try:
                     edited_subtitles = self.getSubtitlesFromTable(self.translatedTable, self.subtitleContent)
+                    dest_path = os.path.join(self.DATA_DIR, os.path.basename(fileName))
                     if fileName.endswith('.srt'):
-                        edited_subtitles.save(fileName, encoding='utf-8')
+                        edited_subtitles.save(dest_path, encoding='utf-8')
                     elif fileName.endswith('.ass') or fileName.endswith('.ssa'):
-                        with open(fileName, 'w', encoding='utf-8') as f:
+                        with open(dest_path, 'w', encoding='utf-8') as f:
                             f.write(edited_subtitles.to_string())
-                    QMessageBox.information(self, "Success", f"Translated subtitle file saved at: {fileName}")
+                    self.subtitlesList.addItem(os.path.basename(dest_path))
+                    self.save_data()
+                    QMessageBox.information(self, "Success", f"Translated subtitle file saved at: {dest_path}")
                 except Exception as e:
-                    QMessageBox.critical(self, "Error", f"Failed to save the translated subtitle file. {str(e)}")
+                    QMessageBox.critical(self, "Error", f"Failed to save the translated subtitle file: {str(e)}")
         else:
             QMessageBox.warning(self, "Error", "Please upload and translate a subtitle file first.")
 
@@ -290,14 +305,17 @@ class MainWindow(QMainWindow):
                                                       options=options)
             if fileName:
                 try:
+                    dest_path = os.path.join(self.DATA_DIR, os.path.basename(fileName))
                     if fileName.endswith('.srt'):
-                        self.subtitleContent.save(fileName, encoding='utf-8')
+                        self.subtitleContent.save(dest_path, encoding='utf-8')
                     elif fileName.endswith('.ass') or fileName.endswith('.ssa'):
-                        with open(fileName, 'w', encoding='utf-8') as f:
+                        with open(dest_path, 'w', encoding='utf-8') as f:
                             f.write(self.subtitleContent.to_string())
-                    QMessageBox.information(self, "Success", f"Original subtitle file saved at: {fileName}")
+                    self.subtitlesList.addItem(os.path.basename(dest_path))
+                    self.save_data()
+                    QMessageBox.information(self, "Success", f"Original subtitle file saved at: {dest_path}")
                 except Exception as e:
-                    QMessageBox.critical(self, "Error", f"Failed to save the original subtitle file. {str(e)}")
+                    QMessageBox.critical(self, "Error", f"Failed to save the original subtitle file: {str(e)}")
         else:
             QMessageBox.warning(self, "Error", "No original text to save.")
 
@@ -308,9 +326,11 @@ class MainWindow(QMainWindow):
                                                   "Video Files (*.mp4 *.mkv);;All Files (*)",
                                                   options=options)
         if fileName:
-            self.video_file = fileName
+            dest_path = os.path.join(self.DATA_DIR, os.path.basename(fileName))
+            shutil.copy(fileName, dest_path)
+            self.video_file = dest_path
             self.videoStatusLabel.setText("Video uploaded successfully.")
-            self.videoList.addItem(fileName)
+            self.videoList.addItem(os.path.basename(dest_path))
             self.save_data()
 
     def uploadTranslatedFile(self):
@@ -321,26 +341,35 @@ class MainWindow(QMainWindow):
                                                   options=options)
         if fileName:
             try:
+                dest_path = os.path.join(self.DATA_DIR, os.path.basename(fileName))
+                shutil.copy(fileName, dest_path)
                 if fileName.endswith('.srt'):
-                    self.translatedContent = pysrt.open(fileName, encoding='utf-8')
+                    self.translatedContent = pysrt.open(dest_path, encoding='utf-8')
                 elif fileName.endswith('.ass') or fileName.endswith('.ssa'):
-                    with open(fileName, 'r', encoding='utf-8') as f:
+                    with open(dest_path, 'r', encoding='utf-8') as f:
                         self.translatedContent = ass.parse(f)
                 self.loadSubtitles(self.translatedTable, self.translatedContent)
-                self.translated_file = fileName
+                self.translated_file = dest_path
+                self.subtitlesList.addItem(os.path.basename(dest_path))
                 self.save_data()
-            except Exception:
-                QMessageBox.critical(self, "Error", "Failed to read the translated subtitle file.")
+            except Exception as e:
+                QMessageBox.critical(self, "Error", f"Failed to read the translated subtitle file: {str(e)}")
 
     def deleteVideo(self):
         current_item = self.videoList.currentItem()
         if current_item:
+            video_path = os.path.join(self.DATA_DIR, current_item.text())
+            if os.path.exists(video_path):
+                os.remove(video_path)
             self.videoList.takeItem(self.videoList.row(current_item))
             self.save_data()
 
     def deleteSubtitle(self):
         current_item = self.subtitlesList.currentItem()
         if current_item:
+            subtitle_path = os.path.join(self.DATA_DIR, current_item.text())
+            if os.path.exists(subtitle_path):
+                os.remove(subtitle_path)
             self.subtitlesList.takeItem(self.subtitlesList.row(current_item))
             self.save_data()
 
@@ -421,13 +450,15 @@ class MainWindow(QMainWindow):
                                                   "Video Files (*.mp4 *.mkv);;All Files (*)",
                                                   options=options)
         if fileName:
-            self.video_file = fileName
+            dest_path = os.path.join(self.DATA_DIR, os.path.basename(fileName))
+            shutil.copy(fileName, dest_path)
+            self.video_file = dest_path
             self.statusLabel.setText("Status: Extracting audio...")
             self.audio_processing_thread = AudioProcessingThread(self.video_file)
             self.audio_processing_thread.finished.connect(self.extract_and_translate_audio)
             self.audio_processing_thread.error.connect(self.showTranslationError)
             self.audio_processing_thread.start()
-            self.videoList.addItem(fileName)
+            self.videoList.addItem(os.path.basename(dest_path))
             self.save_data()
 
     def extract_and_translate_audio(self, audio_chunks_and_sample_rate):
@@ -472,14 +503,14 @@ class MainWindow(QMainWindow):
             start_time = current_subtitle[0]['start_time']
             end_time = current_subtitle[-1]['end_time']
             text = ' '.join([word['word'] for word in current_subtitle])
-            subtitles.append(pysrt.SubRipItem(len(subtitles) + 1,
+            subtitles.append(pysrt.SubRipItem(index=len(subtitles) + 1,
                                               start=pysrt.SubRipTime(milliseconds=start_time),
                                               end=pysrt.SubRipTime(milliseconds=end_time),
                                               text=text))
 
         # Save the extracted subtitles to an SRT file
         extracted_subtitles = pysrt.SubRipFile(items=subtitles)
-        self.subtitle_file = "extracted_subtitles.srt"
+        self.subtitle_file = os.path.join(self.DATA_DIR, "extracted_subtitles.srt")
         extracted_subtitles.save(self.subtitle_file, encoding='utf-8')
         self.subtitleContent = extracted_subtitles
 
@@ -492,6 +523,28 @@ class MainWindow(QMainWindow):
             if os.path.exists(chunk):
                 os.remove(chunk)
                 logging.debug('Deleted chunk file: %s', chunk)
+
+    def addExternalSubtitle(self):
+        options = QFileDialog.Options()
+        options |= QFileDialog.ReadOnly
+        fileName, _ = QFileDialog.getOpenFileName(self, "Open External Subtitle File", "",
+                                                  "Subtitle Files (*.srt *.ass *.ssa);;All Files (*)",
+                                                  options=options)
+        if fileName:
+            try:
+                dest_path = os.path.join(self.DATA_DIR, os.path.basename(fileName))
+                shutil.copy(fileName, dest_path)
+                if fileName.endswith('.srt'):
+                    external_subtitle = pysrt.open(dest_path, encoding='utf-8')
+                elif fileName.endswith('.ass') or fileName.endswith('.ssa'):
+                    with open(dest_path, 'r', encoding='utf-8') as f:
+                        external_subtitle = ass.parse(f)
+                self.loadSubtitles(self.translatedTable, external_subtitle)
+                self.translated_file = dest_path
+                self.subtitlesList.addItem(os.path.basename(dest_path))
+                self.save_data()
+            except Exception as e:
+                QMessageBox.critical(self, "Error", f"Failed to read the external subtitle file: {str(e)}")
 
     def apply_dark_theme(self):
         dark_stylesheet = """
